@@ -1,9 +1,9 @@
-use std::{
-    collections::HashSet,
-    net::{IpAddr, Ipv4Addr},
-    sync::Mutex,
-    time::Duration,
-};
+mod init;
+mod wait;
+use init::is_anyone_home;
+use wait::process_new_joiner;
+
+use std::{collections::BTreeSet, sync::Mutex};
 
 #[macro_use]
 extern crate lazy_static;
@@ -11,11 +11,20 @@ extern crate lazy_static;
 use local_ip_address::local_ip;
 use reqwest::Client;
 
-use tokio::{io::AsyncReadExt, net::TcpListener};
-use tokio::{io::AsyncWriteExt, net::TcpStream};
+use tokio::{net::{TcpListener, TcpStream}, io::AsyncReadExt};
 
 lazy_static! {
-    static ref GLOBAL_DATA: Mutex<HashSet<String>> = Mutex::new(HashSet::new());
+    static ref GLOBAL_DATA: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+    static ref CLIENT: Client = Client::new();
+}
+
+enum LilnetAction {
+    NewJoin,
+    Ping
+}
+struct LilnetRequest {
+    action: LilnetAction,
+    body: Option<String>
 }
 
 #[tokio::main]
@@ -31,11 +40,12 @@ async fn main() -> std::io::Result<()> {
     loop {
         let (socket, _) = listener.accept().await?;
 
-        tokio::spawn(async move { process(socket).await });
+        // let server_action: ServerAction = determine_server_action()
+        tokio::spawn(async move { process_new_joiner(socket).await });
     }
 }
 
-async fn process(mut socket: TcpStream) {
+pub async fn parse_response(socket: TcpStream) -> LilnetRequest {
     println!("Got a connection!");
 
     let mut buf = [0; 1024];
@@ -55,8 +65,6 @@ async fn process(mut socket: TcpStream) {
         Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
     };
 
-    // println!("result: {}", s); // Write the data back
-
     let network_lines = parsed_string
         .split("\n")
         .into_iter()
@@ -64,57 +72,9 @@ async fn process(mut socket: TcpStream) {
 
     let request_body = network_lines.last();
 
-    match request_body {
-        Some(val) => {
-            println!("Request body is: {}", val);
-            GLOBAL_DATA.lock().unwrap().insert(val);
-        }
-        None => println!("No request body"),
+    return LilnetRequest {
+        action: LilnetAction::NewJoin,
+        body: request_body
     }
 
-    if let Err(e) = socket.write_all("HTTP/1.1 200 OK\r\n\r\n".as_bytes()).await {
-        eprintln!("failed to write to socket; err = {:?}", e);
-        return;
-    }
-
-    ()
-}
-
-async fn is_anyone_home(own_ip: IpAddr, max_range: u8, port: u32) {
-    let ip_range = 1..max_range;
-
-    let mut futs = vec![];
-
-    for ip in ip_range {
-        futs.push(async move {
-            let address = Ipv4Addr::new(192, 168, 0, ip);
-            let formatted_address = format!("http://{}:{}", address.to_string(), port.to_string());
-            let request_body = format!("{own_ip}");
-
-            dispatch_request(formatted_address, request_body).await
-        });
-    }
-
-    futures::future::join_all(futs).await;
-}
-
-async fn dispatch_request(address: String, request_body: String) {
-    let client = Client::new();
-
-    let response = client
-        .post(&address)
-        .timeout(Duration::from_secs(2))
-        .body(request_body)
-        .header("Content-Type", "text/plain")
-        .send()
-        .await;
-
-    match response {
-        Ok(_result) => add_to_list(address),
-        Err(_) => (),
-    }
-}
-
-fn add_to_list(address: String) {
-    GLOBAL_DATA.lock().unwrap().insert(address);
 }
