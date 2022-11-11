@@ -1,7 +1,7 @@
-mod init;
-mod wait;
-use init::is_anyone_home;
-use wait::process_new_joiner;
+mod client;
+mod server;
+
+use client::is_anyone_home;
 
 use std::{collections::BTreeSet, sync::Mutex};
 
@@ -11,7 +11,9 @@ extern crate lazy_static;
 use local_ip_address::local_ip;
 use reqwest::Client;
 
-use tokio::{net::{TcpListener, TcpStream}, io::AsyncReadExt};
+use tokio::io::AsyncWriteExt;
+use tokio::net::TcpListener;
+use crate::server::process_request;
 
 lazy_static! {
     static ref GLOBAL_DATA: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
@@ -20,7 +22,7 @@ lazy_static! {
 
 enum LilnetAction {
     NewJoin,
-    Ping
+    Placeholder
 }
 struct LilnetRequest {
     action: LilnetAction,
@@ -38,43 +40,9 @@ async fn main() -> std::io::Result<()> {
     println!("Starting server...");
 
     loop {
-        let (socket, _) = listener.accept().await?;
 
-        // let server_action: ServerAction = determine_server_action()
-        tokio::spawn(async move { process_new_joiner(socket).await });
+        let (socket, socket_addr) = listener.accept().await?;
+
+        tokio::spawn(async move { process_request(socket, socket_addr) });
     }
-}
-
-pub async fn parse_response(socket: TcpStream) -> LilnetRequest {
-    println!("Got a connection!");
-
-    let mut buf = [0; 1024];
-
-    match socket.read(&mut buf).await {
-        // socket closed
-        Ok(n) if n == 0 => return,
-        Ok(n) => n,
-        Err(e) => {
-            eprintln!("failed to read from socket; err = {:?}", e);
-            return;
-        }
-    };
-
-    let parsed_string = match String::from_utf8(buf.to_vec()) {
-        Ok(v) => v,
-        Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
-    };
-
-    let network_lines = parsed_string
-        .split("\n")
-        .into_iter()
-        .map(|val| String::from(val));
-
-    let request_body = network_lines.last();
-
-    return LilnetRequest {
-        action: LilnetAction::NewJoin,
-        body: request_body
-    }
-
 }

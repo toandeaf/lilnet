@@ -17,7 +17,7 @@ pub async fn is_anyone_home(own_ip: IpAddr, max_range: u8, port: u32) {
             let formatted_address = format!("http://{}:{}", address.to_string(), port.to_string());
             let request_body = format!("{own_ip}");
 
-            hello_request(formatted_address, request_body).await
+            hello_request(formatted_address, request_body)
         });
     }
 
