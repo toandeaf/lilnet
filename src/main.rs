@@ -7,7 +7,7 @@ use reqwest::{Client, Error};
 
 use crate::client::client_iteration;
 use crate::server::process_request;
-use std::{collections::BTreeSet, sync::Mutex, thread};
+use std::{collections::BTreeSet, sync::Mutex};
 use tokio::net::TcpListener;
 
 #[macro_use]
