@@ -1,87 +1,96 @@
 use std::{
     collections::HashSet,
     net::{IpAddr, Ipv4Addr},
+    thread,
     time::Duration,
 };
 
 use crate::{CLIENT, GLOBAL_DATA};
 
 pub async fn client_iteration() {
-    println!("Doing client shit!");
+    thread::sleep(Duration::from_secs(10));
+
+    let temp_addresses = GLOBAL_DATA.lock().unwrap().clone();
+
+    for address in temp_addresses {
+        dispatch_ack(address).await;
+    }
 }
 
 pub async fn is_anyone_home(own_ip: IpAddr, max_range: u8, port: u32) {
-    let ip_range = 1..max_range;
+    let ip_ending = own_ip
+        .to_string()
+        .split('.')
+        .last()
+        .map(String::from)
+        .unwrap()
+        .parse::<u8>()
+        .unwrap();
 
-    // TODO Remove own IP from assessment
-    let ips: Vec<u8> = ip_range.collect();
+    let ip_range = 1..max_range;
+    let mut ips: Vec<u8> = ip_range.collect();
+    ips.remove((ip_ending - 1) as usize);
 
     let mut futs = vec![];
 
     for ip in ips {
         futs.push(async move {
             let address = Ipv4Addr::new(192, 168, 0, ip);
-            let formatted_address = format!("http://{}:{}", address.to_string(), port.to_string());
-            let request_body = format!("{own_ip}");
-
-            hello_request(formatted_address, request_body).await
+            let formatted_address = format!("http://{}:{}", address, port);
+            dispatch_ping(formatted_address).await
         });
     }
 
     futures::future::join_all(futs).await;
 }
 
-async fn hello_request(address: String, request_body: String) {
+async fn dispatch_ack(address: String) {
     let response = CLIENT
-        .post(&address)
-        .timeout(Duration::from_secs(2))
-        .body(request_body)
+        .get(&address)
+        .timeout(Duration::from_secs(1))
         .header("Content-Type", "text/plain")
         .send()
         .await;
 
-    let addresses = handle_response(response).await;
+    match response {
+        Ok(_) => (),
+        Err(_) => remove_from_list(address),
+    }
+}
+
+async fn dispatch_ping(address: String) {
+    let response = CLIENT
+        .get(&address)
+        .timeout(Duration::from_secs(1))
+        .header("Content-Type", "text/plain")
+        .send()
+        .await;
+
+    handle_ping_response(response).await;
+}
+
+async fn handle_ping_response(response: Result<reqwest::Response, reqwest::Error>) {
+    let mut addresses: HashSet<String> = HashSet::new();
+    if let Ok(result) = response {
+        match result.text().await {
+            Ok(body_text) => {
+                let dad: Vec<String> = body_text.split(',').map(String::from).collect();
+                addresses.extend(dad);
+            }
+            Err(err) => {
+                eprint!("Couldn't process csv data of addresses");
+                eprint!("{}", err);
+            }
+        };
+    };
 
     initialize_list(addresses);
 }
 
-async fn handle_response(response: Result<reqwest::Response, reqwest::Error>) -> HashSet<String> {
-    return match response {
-        Ok(result) => {
-            let body = result.text().await;
-            let addresses: HashSet<String> = match body {
-                Ok(body_text) => {
-                    let mut reader = csv::Reader::from_reader(body_text.as_bytes());
-
-                    let mut addresses: HashSet<String> = HashSet::new();
-
-                    for record in reader.records() {
-                        match record {
-                            Ok(val) => {
-                                addresses.extend(val.into_iter().map(|data| String::from(data)))
-                            }
-                            Err(err) => {
-                                eprint!("Couldn't process csv data of addresses");
-                                eprint!("{}", err);
-                            }
-                        };
-                    }
-                    addresses
-                }
-                Err(err) => {
-                    eprint!("Couldn't process csv data of addresses");
-                    eprint!("{}", err);
-                    HashSet::new()
-                }
-            };
-
-            addresses
-        }
-
-        Err(_) => HashSet::new(),
-    };
-}
-
 fn initialize_list(addresses: HashSet<String>) {
     GLOBAL_DATA.lock().unwrap().extend(addresses);
+}
+
+fn remove_from_list(address: String) {
+    GLOBAL_DATA.lock().unwrap().remove(address.as_str());
 }

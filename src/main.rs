@@ -7,7 +7,6 @@ use reqwest::{Client, Error};
 
 use crate::client::client_iteration;
 use crate::server::process_request;
-use std::time::Duration;
 use std::{collections::BTreeSet, sync::Mutex, thread};
 use tokio::net::TcpListener;
 
@@ -44,7 +43,7 @@ async fn main() -> std::io::Result<()> {
         }
     });
 
-    println!("Doing both?");
+    println!("Client activity initiated...");
 
     loop {
         match listener.accept().await {
