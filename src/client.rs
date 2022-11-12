@@ -6,27 +6,34 @@ use std::{
 
 use crate::{CLIENT, GLOBAL_DATA};
 
+pub async fn client_iteration() {
+    println!("Doing client shit!");
+}
+
 pub async fn is_anyone_home(own_ip: IpAddr, max_range: u8, port: u32) {
     let ip_range = 1..max_range;
 
+    // TODO Remove own IP from assessment
+    let ips: Vec<u8> = ip_range.collect();
+
     let mut futs = vec![];
 
-    for ip in ip_range {
+    for ip in ips {
         futs.push(async move {
             let address = Ipv4Addr::new(192, 168, 0, ip);
             let formatted_address = format!("http://{}:{}", address.to_string(), port.to_string());
             let request_body = format!("{own_ip}");
 
-            hello_request(formatted_address, request_body)
+            hello_request(formatted_address, request_body).await
         });
     }
 
     futures::future::join_all(futs).await;
 }
 
-async fn hello_request(my_address: String, request_body: String) {
+async fn hello_request(address: String, request_body: String) {
     let response = CLIENT
-        .post(&my_address)
+        .post(&address)
         .timeout(Duration::from_secs(2))
         .body(request_body)
         .header("Content-Type", "text/plain")
