@@ -1,15 +1,38 @@
+use crate::GLOBAL_DATA;
+use local_ip_address::local_ip;
+use reqwest::Client;
 use std::{
     collections::HashSet,
     net::{IpAddr, Ipv4Addr},
     thread,
     time::Duration,
 };
+use tokio::task::JoinHandle;
 
-use crate::{CLIENT, GLOBAL_DATA};
+lazy_static! {
+    static ref CLIENT: Client = Client::new();
+}
+
+pub struct LilNetClient {}
+
+impl LilNetClient {
+    pub async fn initialise() -> JoinHandle<()> {
+        let my_local_ip = local_ip().unwrap();
+        is_anyone_home(my_local_ip, 100, 6969).await;
+
+        println!("Client activity initiating...");
+        let client_thread: JoinHandle<()> = tokio::spawn(async {
+            loop {
+                client_iteration().await;
+            }
+        });
+        println!("Client activity initiated...");
+        client_thread
+    }
+}
 
 pub async fn client_iteration() {
-    println!("Initiating iteration");
-    thread::sleep(Duration::from_secs(3));
+    thread::sleep(Duration::from_secs(1));
 
     println!("Number of addresses {}", GLOBAL_DATA.lock().unwrap().len());
     let temp_addresses = GLOBAL_DATA.lock().unwrap().clone();
@@ -97,6 +120,6 @@ fn initialize_list(addresses: HashSet<String>) {
 }
 
 fn remove_from_list(address: String) {
-    println!("Attempting a removal!");
+    println!("Removing {} from list", address);
     GLOBAL_DATA.lock().unwrap().remove(address.as_str());
 }

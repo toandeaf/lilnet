@@ -1,31 +1,56 @@
 use crate::{LilnetAction, LilnetRequest, GLOBAL_DATA};
-use reqwest::Error;
 use std::net::SocketAddr;
 
+use tokio::net::TcpListener;
+use tokio::task::JoinHandle;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
 };
 
+pub struct LilNetServer {}
+
+impl LilNetServer {
+    pub async fn initialise() -> JoinHandle<()> {
+        println!("Server activity initiating...");
+        let server_thread: JoinHandle<()> = tokio::spawn(async {
+            kick_off().await;
+        });
+        println!("Server activity initiated...");
+
+        server_thread
+    }
+}
+
+async fn kick_off() {
+    let listener = TcpListener::bind("0.0.0.0:6969").await.unwrap();
+
+    loop {
+        let results = listener.accept().await;
+        if let Ok((socket, socket_addr)) = results {
+            process_request(socket, socket_addr).await;
+        }
+    }
+}
+
 const MESSAGE_SIZE: usize = 1024;
 
-pub async fn process_request(socket: TcpStream, socket_addr: SocketAddr) -> Result<String, Error> {
+pub async fn process_request(socket: TcpStream, socket_addr: SocketAddr) {
     let request = parse_request(socket, socket_addr).await;
     let address = socket_addr.ip().to_string();
     match request.action {
         LilnetAction::Ping => {
             let message = format!("Processing the Ping from {}!", &address);
             add_to_own_list(address);
-            Ok(message)
+            println!("{}", message);
         }
         LilnetAction::Ack => {
             let message = format!("Processing the Ack from {}!", &address);
             add_to_own_list(address);
-            Ok(message)
+            println!("{}", message);
         }
         LilnetAction::List => {
             dump_list();
-            Ok(String::from("Processing the List!"))
         }
     }
 }
@@ -99,15 +124,4 @@ fn dump_list() {
             }
         })
         .expect("Failed list dump");
-}
-
-fn remove_from_list(address: String) {
-    GLOBAL_DATA
-        .lock()
-        .map(|mut data| data.remove(address.as_str()))
-        .expect("TODO Panic message");
-}
-
-pub async fn process_leaver(absent_address: String) {
-    remove_from_list(absent_address)
 }
