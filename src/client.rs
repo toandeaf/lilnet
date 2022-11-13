@@ -8,11 +8,14 @@ use std::{
 use crate::{CLIENT, GLOBAL_DATA};
 
 pub async fn client_iteration() {
-    thread::sleep(Duration::from_secs(10));
+    println!("Initiating iteration");
+    thread::sleep(Duration::from_secs(3));
 
+    println!("Number of addresses {}", GLOBAL_DATA.lock().unwrap().len());
     let temp_addresses = GLOBAL_DATA.lock().unwrap().clone();
 
     for address in temp_addresses {
+        println!("Acking {}", address);
         dispatch_ack(address).await;
     }
 }
@@ -36,32 +39,34 @@ pub async fn is_anyone_home(own_ip: IpAddr, max_range: u8, port: u32) {
     for ip in ips {
         futs.push(async move {
             let address = Ipv4Addr::new(192, 168, 0, ip);
-            let formatted_address = format!("http://{}:{}", address, port);
+            let formatted_address = format!("http://{}:{}/ping", address, port);
             dispatch_ping(formatted_address).await
         });
     }
-
     futures::future::join_all(futs).await;
 }
 
 async fn dispatch_ack(address: String) {
+    let url = format!("http://{}:6969/ack", address);
     let response = CLIENT
-        .get(&address)
-        .timeout(Duration::from_secs(1))
+        .get(url)
         .header("Content-Type", "text/plain")
         .send()
         .await;
 
     match response {
         Ok(_) => (),
-        Err(_) => remove_from_list(address),
+        Err(e) => {
+            eprintln!("Error is {}", e);
+            remove_from_list(address)
+        }
     }
 }
 
 async fn dispatch_ping(address: String) {
     let response = CLIENT
-        .get(&address)
-        .timeout(Duration::from_secs(1))
+        .get(address)
+        .timeout(Duration::from_secs(2))
         .header("Content-Type", "text/plain")
         .send()
         .await;
@@ -92,5 +97,6 @@ fn initialize_list(addresses: HashSet<String>) {
 }
 
 fn remove_from_list(address: String) {
+    println!("Attempting a removal!");
     GLOBAL_DATA.lock().unwrap().remove(address.as_str());
 }

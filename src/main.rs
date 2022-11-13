@@ -7,6 +7,7 @@ use reqwest::{Client, Error};
 
 use crate::client::client_iteration;
 use crate::server::process_request;
+use std::thread::ThreadId;
 use std::{collections::BTreeSet, sync::Mutex};
 use tokio::net::TcpListener;
 
@@ -19,7 +20,8 @@ lazy_static! {
 }
 
 enum LilnetAction {
-    NewJoin,
+    Ping,
+    Ack,
     List,
 }
 
@@ -34,28 +36,36 @@ async fn main() -> std::io::Result<()> {
     let listener = TcpListener::bind("0.0.0.0:6969").await?;
     println!("Listening for connections...");
 
-    tokio::spawn(async {
-        let my_local_ip = local_ip().unwrap();
-        is_anyone_home(my_local_ip, 100, 6969).await;
+    let my_local_ip = local_ip().unwrap();
+    is_anyone_home(my_local_ip, 100, 6969).await;
 
+    // TODO Implement thread pool
+    tokio::spawn(async {
         loop {
             client_iteration().await;
         }
     });
-
     println!("Client activity initiated...");
 
     loop {
-        match listener.accept().await {
+        let outcome = match listener.accept().await {
             Ok((socket, socket_addr)) => {
-                tokio::spawn(async move {
+                let handler = tokio::spawn(async move {
                     let outcome: Result<String, Error> = process_request(socket, socket_addr).await;
                     println!("{}", outcome.unwrap());
+                    Ok(())
                 });
+                handler.await.unwrap()
             }
-            Err(_) => {
+            Err(e) => {
                 eprintln!("Error handling connection!");
+                Err(e)
             }
+        };
+
+        match outcome {
+            Ok(_) => println!("Connection handled, returning thread to pool..."),
+            Err(_) => eprintln!("Issue handling connection!"),
         }
     }
 }
